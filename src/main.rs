@@ -1,31 +1,16 @@
 use bevy::prelude::*;
+use bevy::window::*;
+mod gameplay;
 
 fn main() {
     App::new()
-    .add_systems(Startup, setup_board)
-    .add_systems(Update, (sanity, count_tiles))
-    .run();
-}
-
-fn sanity() {
-    println!("running");
-}
-
-#[derive(Component)]
-struct Tile;
-
-#[derive(Component)]
-struct Element(String);
-
-fn setup_board(mut commands: Commands){
-    commands.spawn((Tile, Element("Fire".to_string())));
-    commands.spawn((Tile, Element("Earth".to_string())));
-    commands.spawn((Tile, Element("Water".to_string())));
-    commands.spawn((Tile, Element("Fire".to_string())));
-}
-
-fn count_tiles(query: Query<&Element, With<Tile>>){
-    for element in &query{
-        println!("tile is {}", element.0);
-    }
+        .add_plugins(DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                resolution: WindowResolution::new(500., 900.).with_scale_factor_override(1.0),
+                ..default()
+            }),
+            ..default()
+        }))
+        .add_plugins(gameplay::GameplayPlugin)
+        .run();
 }

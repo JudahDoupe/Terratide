@@ -1,4 +1,5 @@
 use super::components::*;
+use bevy::math::{vec2, VectorSpace};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
@@ -7,7 +8,7 @@ use bevy::window::PrimaryWindow;
 const NUM_ROWS: i32 = 8;
 const NUM_COLS: i32 = 6;
 
-pub fn setup_camera(mut commands: Commands, window_query: Query<&Window, With<PrimaryWindow>>) {
+pub fn setup_camera(mut commands: Commands) {
     commands.spawn((Camera2d { ..default() },));
 }
 
@@ -18,20 +19,23 @@ pub fn setup_tiles(mut commands: Commands, assets: Res<AssetServer>) {
                 .spawn((
                     Tile {
                         coord: Coordinate { row: row, col: col },
-                        element: if col == 0 || col == NUM_COLS - 1 {
-                            Element::Fire
-                        } else if col == 1 || col == NUM_COLS - 2 {
-                            Element::Earth
-                        } else {
-                            Element::Water
+                        element: match col {
+                            c if c == 0 || c == NUM_COLS - 1 => Element::Fire,
+                            c if c == 1 || c == NUM_COLS - 2 => Element::Earth,
+                            _ => Element::Water,
                         },
-                        player: if row < 3 {
-                            Player::Player1
-                        } else if row >= (NUM_ROWS - 3) {
-                            Player::Player2
-                        } else {
-                            Player::None
+                        player: match row {
+                            r if r < NUM_ROWS / 2 => Player::Player1,
+                            r if r >= NUM_ROWS / 2 => Player::Player2,
+                            _ => Player::None,
                         },
+                        interactable: Interactable::None,
+                    },
+                    Bounds {
+                        top: 0.0,
+                        bottom: 0.0,
+                        left: 0.0,
+                        right: 0.0,
                     },
                     Sprite {
                         image: assets.load("sprites/elementTile.png"),
@@ -39,7 +43,6 @@ pub fn setup_tiles(mut commands: Commands, assets: Res<AssetServer>) {
                     },
                 ))
                 .with_children(|parent| {
-                    // Create the child entity (player)
                     parent.spawn((
                         PlayerTile,
                         Sprite {
@@ -55,19 +58,30 @@ pub fn setup_tiles(mut commands: Commands, assets: Res<AssetServer>) {
 //Visualization
 
 pub fn update_tile_sprite(
-    mut tile_query: Query<(&mut Sprite, &mut Transform, &Tile)>,
+    mut tile_query: Query<(&mut Sprite, &mut Transform, &mut Bounds, &Tile)>,
     window_query: Query<&Window, With<PrimaryWindow>>,
 ) {
     let tile_size = tile_size(window_query);
 
-    for (mut sprite, mut transform, tile) in tile_query.iter_mut() {
+    for (mut sprite, mut transform, mut bounds, tile) in tile_query.iter_mut() {
         sprite.color = match tile.element {
             Element::Fire => Color::hsl(22.0, 0.89, 0.44),
             Element::Earth => Color::hsl(85.0, 0.23, 0.48),
             Element::Water => Color::hsl(175.0, 1.0, 0.25),
         };
-        sprite.custom_size = Some(Vec2::new(tile_size, tile_size));
+        sprite.custom_size = Some(
+            Vec2::new(tile_size, tile_size)
+                * match tile.interactable {
+                    Interactable::None => 0.8,
+                    Interactable::Clickable => 1.0,
+                    Interactable::Active => 0.6,
+                },
+        );
         transform.translation = tile_position(&tile.coord, tile_size, 1.0);
+        bounds.top = transform.translation.y + tile_size / 2.0;
+        bounds.bottom = transform.translation.y - tile_size / 2.0;
+        bounds.left = transform.translation.x - tile_size / 2.0;
+        bounds.right = transform.translation.x + tile_size / 2.0;
     }
 }
 
@@ -111,24 +125,92 @@ fn tile_size(window_query: Query<&Window, With<PrimaryWindow>>) -> f32 {
 
 // Gameplay
 
-pub fn advance_tile(player_move: Res<Turn>, mut tiles: Query<&mut Tile>) {
-    match (&player_move.source, &player_move.destination) {
-        (Some(src), Some(dst)) => {
-            let mut src_element = Element::Water;
-            let mut src_player = Player::None;
-            for tile in &mut tiles {
-                if tile.coord == *src {
-                    src_element = tile.element.clone();
-                    src_player = tile.player.clone();
-                }
+pub fn update_tile(turn: Res<Turn>, mut q_tiles: Query<(&mut Tile)>) {
+    for mut dst in q_tiles.iter_mut() {
+        dst.interactable = match &turn.src_tile {
+            Some(src)
+                if src.coord.is_neighbor(&dst.coord) && src.element.can_attack(&dst.element) =>
+            {
+                Interactable::Clickable
             }
-            for mut tile in &mut tiles {
-                if tile.coord == *dst {
-                    tile.element = src_element.clone();
-                    tile.player = src_player.clone();
+            Some(src) if src.coord == dst.coord => Interactable::Active,
+            None if turn.player == dst.player => Interactable::Clickable,
+            _ => Interactable::None,
+        };
+    }
+}
+
+pub fn advance_tile(
+    mut ev_advance_tile: EventReader<AdvanceTileEvent>,
+    mut q_tiles: Query<&mut Tile>,
+    mut turn: ResMut<Turn>,
+) {
+    for ev in ev_advance_tile.read() {
+        if let Ok(mut tile) = q_tiles.get_mut(ev.0) {
+            if let Some(src) = &turn.src_tile {
+                tile.element = src.element.clone();
+                tile.player = src.player.clone();
+            }
+            turn.player = match turn.player {
+                Player::None => Player::None,
+                Player::Player1 => Player::Player2,
+                Player::Player2 => Player::Player1,
+            };
+            turn.src_tile = None;
+        }
+    }
+}
+
+pub fn read_input(
+    buttons: Res<ButtonInput<MouseButton>>,
+    touches: Res<Touches>,
+    mut turn: ResMut<Turn>,
+    q_windows: Query<&Window, With<PrimaryWindow>>,
+    q_camera: Query<&Transform, With<Camera2d>>,
+    q_tiles: Query<(Entity, &Bounds, &Tile)>,
+    mut ev_advance_tile: EventWriter<AdvanceTileEvent>,
+) {
+    let window = q_windows.single();
+    let camera = q_camera.single();
+    let mut pos = None;
+
+    for finger in touches.iter() {
+        if touches.just_released(finger.id()) {
+            pos = Some(window_to_world(finger.position(), &window, &camera));
+        }
+    }
+    if buttons.just_released(MouseButton::Left) {
+        if let Some(p) = window.cursor_position() {
+            pos = Some(window_to_world(p, &window, &camera));
+        }
+    }
+
+    if let Some(p) = pos {
+        for (entity, bounds, tile) in q_tiles.iter() {
+            if tile.interactable != Interactable::None
+                && bounds.left < p.x
+                && p.x < bounds.right
+                && bounds.bottom < p.y
+                && p.y < bounds.top
+            {
+                match turn.src_tile.clone() {
+                    None => turn.src_tile = Some(tile.clone()),
+                    Some(t) if t.coord == tile.coord => turn.src_tile = None,
+                    _ => {
+                        ev_advance_tile.send(AdvanceTileEvent(entity));
+                        ()
+                    }
                 }
             }
         }
-        _ => {}
-    };
+    }
+}
+
+fn window_to_world(position: Vec2, window: &Window, camera: &Transform) -> Vec2 {
+    let norm = Vec3::new(
+        position.x - window.width() / 2.,
+        -(position.y - window.height() / 2.),
+        0.0,
+    );
+    (*camera * norm).xy()
 }

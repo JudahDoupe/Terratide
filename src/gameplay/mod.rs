@@ -11,19 +11,15 @@ impl Plugin for GameplayPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(Turn {
             player: Player::Player1,
-            source: None,
-            destination: None,
+            src_tile: None,
         })
         .insert_resource(ClearColor(Color::hsl(37.0, 0.65, 0.68)))
+        .add_event::<AdvanceTileEvent>()
         .add_systems(Startup, (setup_tiles, setup_camera))
-        .add_systems(Update, advance_tile)
+        .add_systems(Update, (read_input, update_tile, advance_tile).chain())
         .add_systems(
             Update,
-            (
-                systems::update_tile_sprite,
-                systems::update_player_tile_sprite,
-            )
-                .chain(),
+            (update_tile_sprite, update_player_tile_sprite).chain(),
         );
     }
 }

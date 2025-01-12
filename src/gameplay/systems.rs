@@ -1,5 +1,4 @@
 use super::components::*;
-use bevy::math::{vec2, VectorSpace};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
@@ -19,11 +18,7 @@ pub fn setup_tiles(mut commands: Commands, assets: Res<AssetServer>) {
                 .spawn((
                     Tile {
                         coord: Coordinate { row: row, col: col },
-                        element: match col {
-                            c if c == 0 || c == NUM_COLS - 1 => Element::Fire,
-                            c if c == 1 || c == NUM_COLS - 2 => Element::Earth,
-                            _ => Element::Water,
-                        },
+                        element: rand::random(),
                         player: match row {
                             r if r < NUM_ROWS / 2 => Player::Player1,
                             r if r >= NUM_ROWS / 2 => Player::Player2,
@@ -125,7 +120,7 @@ fn tile_size(window_query: Query<&Window, With<PrimaryWindow>>) -> f32 {
 
 // Gameplay
 
-pub fn update_tile(turn: Res<Turn>, mut q_tiles: Query<(&mut Tile)>) {
+pub fn update_tile(turn: Res<Turn>, mut q_tiles: Query<&mut Tile>) {
     for mut dst in q_tiles.iter_mut() {
         dst.interactable = match &turn.src_tile {
             Some(src)

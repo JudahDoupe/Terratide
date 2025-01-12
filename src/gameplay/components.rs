@@ -1,4 +1,6 @@
 use bevy::prelude::*;
+use rand::distributions::{Distribution, Standard};
+use rand::Rng;
 
 #[derive(Clone, PartialEq)]
 pub enum Element {
@@ -13,6 +15,16 @@ impl Element {
             Element::Earth => *other == Element::Water,
             Element::Fire => *other == Element::Earth,
             Element::Water => *other == Element::Fire,
+        }
+    }
+}
+
+impl Distribution<Element> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Element {
+        match rng.gen_range(0..3) {
+            0 => Element::Fire,
+            1 => Element::Earth,
+            _ => Element::Water,
         }
     }
 }

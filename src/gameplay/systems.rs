@@ -52,7 +52,10 @@ pub fn setup_tiles(mut commands: Commands, assets: Res<AssetServer>) {
 
 //Visualization
 
+const TILE_ANIMATION_SPEED: f32 = 10.0;
+
 pub fn update_tile_sprite(
+    time: Res<Time>,
     mut tile_query: Query<(&mut Sprite, &mut Transform, &mut Bounds, &Tile)>,
     window_query: Query<&Window, With<PrimaryWindow>>,
 ) {
@@ -64,14 +67,16 @@ pub fn update_tile_sprite(
             Element::Earth => Color::hsl(85.0, 0.23, 0.48),
             Element::Water => Color::hsl(175.0, 1.0, 0.25),
         };
-        sprite.custom_size = Some(
-            Vec2::new(tile_size, tile_size)
-                * match tile.interactable {
-                    Interactable::None => 0.8,
-                    Interactable::Clickable => 1.0,
-                    Interactable::Active => 0.6,
-                },
-        );
+        let mut target_size = Vec2::new(tile_size, tile_size)
+            * match tile.interactable {
+                Interactable::None => 0.8,
+                Interactable::Clickable => 1.0,
+                Interactable::Active => 0.6,
+            };
+        if let Some(current_size) = sprite.custom_size {
+            target_size = current_size.lerp(target_size, TILE_ANIMATION_SPEED * time.delta_secs());
+        }
+        sprite.custom_size = Some(target_size);
         transform.translation = tile_position(&tile.coord, tile_size, 1.0);
         bounds.top = transform.translation.y + tile_size / 2.0;
         bounds.bottom = transform.translation.y - tile_size / 2.0;
